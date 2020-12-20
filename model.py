@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import PIL
+import augmentations
 
 rng = np.random.default_rng()
 
@@ -17,12 +18,14 @@ class MiniBatch():
         batch = list()
         for m in range(self._M):
             x = self._source[m]
+            w,h = x.shape
             for k in range(self._K):
                 # TODO: convert augmentation fns to np/tensorflow operations
                 #       reduce conversion overhead
-                aug_x = self._augmentor(x, k)
+                aug_x = self._augmentor(x).reshape((w,h,-1))
                 batch.append(aug_x)
-        return batch
+        batch_tensor = tf.stack(batch)
+        return batch_tensor
 
 # generate ceil(N/M) MiniBatches from ds
 #   ds      :   source dataset, iterable over (x, label) tuples
@@ -41,49 +44,6 @@ def batch(ds, N, M, K, augmentor = lambda x, k: x, shuffle=True):
     if shuffle:
         np.random.shuffle(batched_ds)
     return batched_ds
-
-def HorizontalFlip(im, p=0.5):
-    if p >= rng.random():
-        return im.transpose(PIL.Image.FLIP_LEFT_RIGHT)
-    else:
-        return im
-
-def CropResize(im, crop_lo=0.08,crop_hi=1.0,aspect_lo=3/4,aspect_hi=4/3):
-    new_aspect = rng.uniform(aspect_lo, aspect_hi)
-    crop = rng.uniform(crop_lo, crop_hi)
-    w,h = im.size
-    s_w, s_h = (min(w, new_aspect * crop * w), crop * h)
-    x1 = (w - s_w) * rng.random()
-    x2 = x1 + s_w
-    y1 = (h - s_h) * rng.random()
-    y2 = y1 + s_h
-    return im.resize((w,h),resample=2,box=(x1,y1,x2,y2))
-
-def ColorJitter(im, b_max=0.8,c_max=0.8,s_max=0.8):
-    rand = rng.random(3)
-    im = PIL.ImageEnhance.Brightness(im).enhance(1 + rand[0] * b_max)
-    im = PIL.ImageEnhance.Contrast(im).enhance(1 + rand[1] * c_max)
-    im = PIL.ImageEnhance.Color(im).enhance(1 + rand[2] * s_max)
-    return im
-
-def Decolorize(im, p=0.2):
-    if p >= rng.random():
-        return PIL.ImageEnhance.Color(im).enhance(0.0)
-    else:
-        return im
-
-def apply_random_augmentations(x, i,
-    augmentations=[HorizontalFlip, ColorJitter, CropResize, Decolorize], channels=1):
-    if channels == 1:
-        mode = 'L'
-    elif channels == 3:
-        mode = 'RGB'
-    w,h = x.shape
-    im = PIL.Image.fromarray(x, mode)
-    for A in augmentations:
-        im = A(im)
-    aug_x = np.array(im,dtype=np.float32).reshape(1,w,h,1)
-    return aug_x
 
 def aggregate_pos(X,M,K):
     aggX = list()
@@ -108,7 +68,7 @@ def aggregate_neg(X, M, K):
         for k in range(K):
             x1 = X[m*K + k]
             for i in range(K-1):
-                neg_m = (m+i) % M
+                neg_m = (m + int(np.ceil(rng.random()*(M-1)))) % M
                 neg_k = int(rng.random())*K
                 x2 = X[neg_m*K + neg_k]
                 x = tf.concat((x1,x2), 0)
@@ -117,9 +77,11 @@ def aggregate_neg(X, M, K):
     return tf.stack(aggX), tf.stack(aggT)
 
 def aggregate(X, M, K):
-    agg_pos = aggregate_pos(X,M,K)
-    agg_neg = aggregate_neg(X,M,K)
-    return tf.stack((agg_pos[0],agg_neg[0])), tf.stack((agg_pos[1],agg_neg[1]))
+    pos = aggregate_pos(X,M,K)
+    neg = aggregate_neg(X,M,K)
+    agg_samples = tf.concat((pos[0],neg[0]),0)
+    agg_labels = tf.concat((pos[1],neg[1]),0)
+    return agg_samples, agg_labels
 
 class Conv4(tf.keras.Model):
     def __init__(self):
@@ -183,12 +145,14 @@ class Relator(tf.keras.Model):
 
 @tf.function
 def loss(T, Y):
-    return loss_object(T,Y)
+    return tf.keras.losses.BinaryCrossentropy()(T,Y)
 
-def train_step(X, M, K, step):
+def train_step(X, M, K, step, model, objects):
+    backbone, relation = model
+    loss, optimizer, train_loss, train_accuracy, _, _ = objects
     with tf.GradientTape(persistent=True) as tape:
         # encoding
-        Z1 = backbone(tf.concat(X,0), training=True)
+        Z1 = backbone(X, training=True)
         # aggregation
         Z2, T = aggregate(Z1, M, K)
         # score tuples
@@ -204,14 +168,15 @@ def train_step(X, M, K, step):
     train_loss(T, Y)
     train_accuracy(T, Y)
 
-def test_step(X, M, K):
-    Z1 = backbone(tf.concat(X,0), training=False)
+def test_step(X, M, K, model, objects):
+    backbone, relation = model
+    loss, optimizer, _, _, test_loss, test_accuracy = objects
+    Z1 = backbone(X, training=False)
     Z2, T = aggregate(Z1, M, K)
     Y = relation(Z2, training=False)
     l = loss(T, Y)
     test_loss(T, Y)
     test_accuracy(T, Y)
-
 
 def main():
     (train_x, _), (test_x, __) = tf.keras.datasets.fashion_mnist.load_data()
@@ -220,13 +185,11 @@ def main():
     #test_x = tf.random.shuffle(test_x)
 
     backbone = Conv4()
-    backbone.build((None,28,28,1))
+    backbone.build((None,28,28,3))
     backbone.summary()
     relation = Relator()
     relation.build((None,128))
     relation.summary()
-
-    loss_object = tf.keras.losses.BinaryCrossentropy()
 
     train_loss = tf.keras.metrics.BinaryCrossentropy()
     train_accuracy = tf.keras.metrics.BinaryAccuracy()
@@ -240,27 +203,30 @@ def main():
     N2 = len(test_x)
     M = 5
     K = 5
-    p = 50
+    p = 200
+
+    model = (backbone, relation)
+    objects = (loss, optimizer, train_loss, train_accuracy, test_loss, test_accuracy)
     for epoch in range(EPOCHS):
         train_loss.reset_states()
         train_accuracy.reset_states()
         test_loss.reset_states()
         test_accuracy.reset_states()
 
-        batched_train_x = batch(train_x, N1, M, K, augmentor=apply_random_augmentations)
-        batched_test_x = batch(test_x, N2, M, K, augmentor=apply_random_augmentations)
+        batched_train_x = batch(train_x, N1, M, K, augmentor=augmentations.apply_all)
+        batched_test_x = batch(test_x, N2, M, K, augmentor=augmentations.apply_all)
 
         print('training progress')
         for i in range(len(batched_train_x)):
             minibatch = batched_train_x[i]
-            train_step(minibatch(), M, K, i%2)
+            train_step(minibatch(), M, K, i%2, model, objects)
             if i % (len(batched_train_x)//p) == 0:
-                print(i/len(batched_train_x))
+                print(f'{100*i/len(batched_train_x)}%')
 
         print('testing...')
         for i in range(len(batched_test_x)):
             minibatch = batched_train_x[i]
-            test_step(minibatch(), M, K)
+            test_step(minibatch(), M, K, model, objects)
 
         print(
             f'Epoch {epoch + 1}, '
@@ -269,8 +235,6 @@ def main():
             f'Test Loss: {test_loss.result()}, '
             f'Test Accuracy: {test_accuracy.result() * 100}'
             )
-
-    # TODO compare training dynamics w/ and w/out picky pairing (picky pairing checks for false positive and false negative tuples)
 
 if __name__ == '__main__':
     main()

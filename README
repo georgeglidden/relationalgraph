@@ -1,1 +1,13 @@
-objective: gain insight into the relational module from patacchio&storkey 2020 by tracing relation decisions on a graph
+objective: gain insight into the relational module (implementation of etam-esque optimization) from patacchio&storkey 2020 by tracing relation decisions on a graph
+
+unit tests:
+  - MiniBatch
+    * list structure  -> PASS
+    * set identity    -> PASS
+  - aggregation
+    * nb samples      -> PASS
+    * label accuracy  -> PASS
+  - augmentation (scipy)
+    * visual check    -> PASS
+      - ColorJitter   -> PASS
+    * channel sensitivity -> PASS
