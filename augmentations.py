@@ -20,7 +20,11 @@ def chk_dim_and_chn(im, d=3,c=3):
 
 def channel_norm(im, c=3):
     for i in range(c):
-        im[:,:,i] = (im[:,:,i] - np.min(im[:,:,i])) / (np.max(im[:,:,i]) - np.min(im[:,:,i]))
+        channel = im[:,:,i]
+        channel_max = np.max(channel)
+        channel_min = np.max(channel)
+        if channel_max > channel_min:
+            im[:,:,i] = (channel - channel_min) / (channel_max - channel_min)
     return im
 
 def ColorJitter(im, hm=0.8,sm=0.8,vm=0.8,cm=0.8):
