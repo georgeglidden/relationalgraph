@@ -1,5 +1,5 @@
 objectives:
-  - gain insight into the relational module (implementation of etam-esque optimization) from patacchio&storkey 2020 by tracing relation decisions on a graph
+  - gain insight into the relational module (implementation of etam-esque optimization) from patacchiola&storkey 2020 by tracing relation decisions on a graph
   - improve training and model performance by leveraging spectral properties of the relational graph
   - compare against http://proceedings.mlr.press/v119/bianchi20a/bianchi20a.pdf
 
