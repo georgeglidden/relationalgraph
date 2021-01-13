@@ -238,7 +238,7 @@ else:
                 print(
                 f'{100*i/N1}% '
                 f'{train_loss.result()} '
-                f'{training_time_sum / i}')
+                f'{training_time_sum / (i+1)}')
         print('testing')
         for i in range(N2):
             minibatch = test_batches[i]
