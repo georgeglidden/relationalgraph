@@ -192,7 +192,11 @@ def test_step(X, T1, M, K):
 if not __name__ == '__main__':
     print('model.py')
 else:
-    #tf.keras.backend.set_floatx('float64')
+    # https://github.com/tensorflow/tensorflow/issues/42738
+    # gpu_devices = tf.config.experimental.list_physical_devices('GPU')
+    # for device in gpu_devices:
+    #     tf.config.experimental.set_memory_growth(device, True)
+    
     (train_x, train_y), (test_x, test_y) = tf.keras.datasets.cifar10.load_data()
     train_perm = tf.random.shuffle(tf.range(tf.shape(train_x)[0]))
     train_x = tf.gather(train_x, train_perm, axis=0)
@@ -202,7 +206,7 @@ else:
     test_y = tf.gather(test_y, test_perm, axis=0)
     M = 2
     K = 10
-    p = 1000
+    p = 50
     rate = 1e-4
     EPOCHS = 20
     N1 = len(train_x)
