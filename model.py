@@ -191,7 +191,7 @@ def test_step(X, T1, M, K):
 if not __name__ == '__main__':
     print('model.py')
 else:
-    tf.keras.backend.set_floatx('float64')
+    #tf.keras.backend.set_floatx('float64')
     (train_x, train_y), (test_x, test_y) = tf.keras.datasets.cifar10.load_data()
     train_perm = tf.random.shuffle(tf.range(tf.shape(train_x)[0]))
     train_x = tf.gather(train_x, train_perm, axis=0)

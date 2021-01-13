@@ -1,3 +1,4 @@
+modified to work with keras-gpu on an EC2 instance
 objectives:
   - gain insight into the relational module (implementation of etam-esque optimization) from patacchiola&storkey 2020 by tracing relation decisions on a graph
   - improve training and model performance by leveraging spectral properties of the relational graph
