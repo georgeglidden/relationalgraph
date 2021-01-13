@@ -1,6 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import augmentations
+from time import time
 
 rng = np.random.default_rng()
 
@@ -226,14 +227,18 @@ else:
         train_batches = batch(train_x, train_y, N1, M, K, augmentor=augmentations.apply_all)
         test_batches = batch(test_x, test_y, N2, M, K, augmentor=augmentations.apply_all)
         print('training')
+        training_time_sum = 0.0
         for i in range(N1):
+            training_time_start = time()
             minibatch = train_batches[i]
             train_batch_x, train_batch_y = minibatch()
             train_step(train_batch_x, train_batch_y, M, K, i%2)
+            training_time_sum += time() - training_time_start
             if i % (N1//p) == 0:
                 print(
                 f'{100*i/N1}% '
-                f'{train_loss.result()} ')
+                f'{train_loss.result()} '
+                f'{training_time_sum / i}')
         print('testing')
         for i in range(N2):
             minibatch = test_batches[i]
