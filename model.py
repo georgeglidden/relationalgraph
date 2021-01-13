@@ -228,17 +228,18 @@ else:
         test_batches = batch(test_x, test_y, N2, M, K, augmentor=augmentations.apply_all)
         print('training')
         training_time_sum = 0.0
+        training_time_start = time()
         for i in range(N1):
-            training_time_start = time()
             minibatch = train_batches[i]
             train_batch_x, train_batch_y = minibatch()
             train_step(train_batch_x, train_batch_y, M, K, i%2)
-            training_time_sum += time() - training_time_start
+            training_time_sum = time() - training_time_start
             if i % (N1//p) == 0:
                 print(
                 f'{100*i/N1}% '
-                f'{train_loss.result()} '
-                f'{training_time_sum / (i+1)}')
+                f'loss {train_loss.result()} '
+                f'time {training_time_sum} '
+                f'avg time per step {training_time_sum / (i+1)}')
         print('testing')
         for i in range(N2):
             minibatch = test_batches[i]
