@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import augmentations
 from time import time
+import sys
 
 rng = np.random.default_rng()
 
@@ -9,7 +10,7 @@ rng = np.random.default_rng()
 class MiniBatch():
     def __init__(self, samples, labels, M, K, augmentor):
         self._source = (samples, labels)
-        self._M = M
+        self._M = samples.shape[0]
         self._K = K
         self._augmentor = augmentor
 
@@ -154,7 +155,7 @@ class Relator(tf.keras.Model):
         x = self.d2(x)
         return x
 
-@tf.function
+@tf.function(experimental_relax_shapes=True)
 def loss(T, Y):
     return loss_object(T,Y)
 
@@ -192,6 +193,23 @@ def test_step(X, T1, M, K):
 if not __name__ == '__main__':
     print('model.py')
 else:
+    if len(sys.argv) == 6:
+        M = int(sys.argv[1])
+        K = int(sys.argv[2])
+        p = int(sys.argv[3])
+        EPOCHS = int(sys.argv[4])
+        rate = float(sys.argv[5])
+    else:
+        M = 2
+        K = 10
+        p = 1000
+        EPOCHS = 20
+        rate = 1e-4
+    print(
+        f'initializing with hyperparameters:\n\t'
+        f'minibatch size {M},{K}\n\t'
+        f'training rate {rate}\n\t'
+        f'epochs {EPOCHS} updating every %{100/p} increment\n\n')
     #tf.keras.backend.set_floatx('float64')
     (train_x, train_y), (test_x, test_y) = tf.keras.datasets.cifar10.load_data()
     train_perm = tf.random.shuffle(tf.range(tf.shape(train_x)[0]))
@@ -200,11 +218,6 @@ else:
     test_perm = tf.random.shuffle(tf.range(tf.shape(test_x)[0]))
     test_x = tf.gather(test_x, test_perm, axis=0)
     test_y = tf.gather(test_y, test_perm, axis=0)
-    M = 2
-    K = 10
-    p = 1000
-    rate = 1e-4
-    EPOCHS = 20
     N1 = len(train_x)
     N2 = len(test_x)
     backbone = Conv4()
