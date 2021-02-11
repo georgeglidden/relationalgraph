@@ -1,0 +1,8 @@
+dataset:CIFAR10,CIFAR100
+model:Conv4,ConvLong
+model size:1,2,3,4
+epochs:2,5,15,50
+training rate:1e-4,1e-6,1e-8
+mbatch size:3,5,7,10
+do aug:0,1
+nb aug:5,10,20
