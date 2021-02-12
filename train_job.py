@@ -4,6 +4,8 @@ from augmentations import apply_all, no_aug
 import tensorflow as tf
 from tensorflow.keras import datasets as keras_datasets
 import sys
+from time import time
+from numpy import mean
 
 def load_ds(ds_name):
     print('loading', ds_name)
@@ -51,6 +53,7 @@ def setup_augbatch(do_aug, mbatch_size, nb_aug):
     M = int(mbatch_size)
     K = int(nb_aug)
     return augment_opt, M, K
+
 def main():
     state = {
         'dataset':sys.argv[1],
@@ -102,7 +105,10 @@ def main():
     print('M, K:', (M,K))
     print('P, P2:', (p, p2))
     for epoch in range(int(state['epochs'])):
-        stats_list = []
+        telapsed_batch = []
+        telapsed_eval = []
+        telapsed_grad = []
+        telapsed_end = []
         train_accuracy_metric.reset_states()
         train_loss_metric.reset_states()
         test_accuracy_metric.reset_states()
@@ -112,16 +118,20 @@ def main():
         print('training')
         i = 0
         for minibatch in train_batches:
+            step_start = time()
             i += M
             train_batch_x, train_batch_y = minibatch()
+            step_batch = time()
             with tf.GradientTape() as tape:
                 Z1 = model_a(train_batch_x, training=True)
                 Z2, T2 = pair(Z1, M, K)
                 Y = model_b(Z2, training=True)
                 loss_value = loss(T2, Y)
+            step_evaluate = time()
             grads_a, grads_b = tape.gradient(loss_value, [model_a.trainable_weights, model_b.trainable_weights])
             optimizer.apply_gradients(zip(grads_a, model_a.trainable_weights))
             optimizer.apply_gradients(zip(grads_b, model_b.trainable_weights))
+            step_gradopt = time()
 
             train_accuracy_metric.update_state(T2, Y)
             train_loss_metric.update_state(T2,Y)
@@ -136,7 +146,20 @@ def main():
                 f'acc {train_accuracy_metric.result()} '
                 f'avg loss {train_loss_metric.result()}\n'
                 f'{tf.reshape(Y-T2, [-1])}')
+            step_end = time()
+            telapsed_batch.append(step_batch - step_start)
+            telapsed_eval.append(step_evaluate - step_batch)
+            telapsed_grad.append(step_gradopt - step_evaluate)
+            telapsed_end.append(step_end - step_gradopt)
+            print(f'time to unpack batch: {step_batch - step_start}\n'
+                f'time to evaluate: {step_evaluate - step_batch}\n'
+                f'time to calc grad and optimize: {step_gradopt - step_evaluate}\n'
+                f'time from optimization to end: {step_end - step_gradopt}\n\n')
 
+        print(f'avg unpack batch: {mean(telapsed_batch)}\n'
+            f'avg evaluate: {mean(telapsed_eval)}\n'
+            f'avg calc grad and optimize: {mean(telapsed_grad)}\n'
+            f'avg end: {mean(telapsed_end)}\n\n')
         print('testing')
         i = 0
         for minibatch in test_batches:
