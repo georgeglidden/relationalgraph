@@ -67,6 +67,7 @@ print('state\n', state)
 
 PORT = 465
 id = sys.argv[9]
+pr = int(sys.argv[10])
 
 # load and prep data
 dataset = load_ds(state['dataset'])
@@ -87,17 +88,19 @@ model_b_summary = "\n".join(summarylist)
 augment_opt, M, K = setup_augbatch(state['do aug'], state['mbatch size'], state['nb aug'])
 
 # do training
-nsteps = N1 // M #approximately
-p = M * (nsteps // 1000) # update every 0.1%
-s = M * (nsteps // 20) # save every 5%
-test_nsteps = N2 // M
-p2 = M * (nsteps // 1000)
+nb_train_steps = N1 // M
+p = M * (nb_train_steps // pr)
+s = M * (nb_train_steps // 20) # save every 5%
+nb_test_steps = N2 / M
+p2 = M * (nb_test_steps // 10)
 stats_list = []
 train_accuracy = 0.0
 train_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
 train_loss_metric = tf.keras.metrics.BinaryCrossentropy()
 test_accuracy = 0.0
 test_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
+print('M, K:', (M,K))
+print('P, P2:', (p, p2))
 for epoch in range(int(state['epochs'])):
     stats_list = []
     train_accuracy_metric.reset_states()
