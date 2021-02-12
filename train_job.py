@@ -51,102 +51,105 @@ def setup_augbatch(do_aug, mbatch_size, nb_aug):
     M = int(mbatch_size)
     K = int(nb_aug)
     return augment_opt, M, K
+def main():
+    state = {
+        'dataset':sys.argv[1],
+        'model':sys.argv[2],
+        'model size':sys.argv[3],
+        'epochs':sys.argv[4],
+        'training rate':sys.argv[5],
+        'mbatch size':sys.argv[6],
+        'do aug':sys.argv[7],
+        'nb aug':sys.argv[8]
+    }
 
-state = {
-    'dataset':sys.argv[1],
-    'model':sys.argv[2],
-    'model size':sys.argv[3],
-    'epochs':sys.argv[4],
-    'training rate':sys.argv[5],
-    'mbatch size':sys.argv[6],
-    'do aug':sys.argv[7],
-    'nb aug':sys.argv[8]
-}
+    print('state\n', state)
 
-print('state\n', state)
+    PORT = 465
+    id = sys.argv[9]
+    pr = int(sys.argv[10])
 
-PORT = 465
-id = sys.argv[9]
-pr = int(sys.argv[10])
+    # load and prep data
+    dataset = load_ds(state['dataset'])
+    (train_x, train_y), (test_x, test_y) = prep_ds(dataset)
+    N1 = len(train_x)
+    N2 = len(test_x)
 
-# load and prep data
-dataset = load_ds(state['dataset'])
-(train_x, train_y), (test_x, test_y) = prep_ds(dataset)
-N1 = len(train_x)
-N2 = len(test_x)
+    # build model
+    (model_a, model_b), loss, optimizer = build_model(state['model'], state['dataset'], int(state['model size']), float(state['training rate']))
+    summarylist = []
+    model_a.summary(print_fn=lambda x: summarylist.append(x))
+    model_a_summary = "\n".join(summarylist)
+    summarylist = []
+    model_b.summary(print_fn=lambda x: summarylist.append(x))
+    model_b_summary = "\n".join(summarylist)
 
-# build model
-(model_a, model_b), loss, optimizer = build_model(state['model'], state['dataset'], int(state['model size']), float(state['training rate']))
-summarylist = []
-model_a.summary(print_fn=lambda x: summarylist.append(x))
-model_a_summary = "\n".join(summarylist)
-summarylist = []
-model_b.summary(print_fn=lambda x: summarylist.append(x))
-model_b_summary = "\n".join(summarylist)
+    # define augmentor, minibatch params
+    augment_opt, M, K = setup_augbatch(state['do aug'], state['mbatch size'], state['nb aug'])
 
-# define augmentor, minibatch params
-augment_opt, M, K = setup_augbatch(state['do aug'], state['mbatch size'], state['nb aug'])
-
-# do training
-nb_train_steps = N1 // M
-p = M * (nb_train_steps // pr)
-s = M * (nb_train_steps // 20) # save every 5%
-nb_test_steps = N2 / M
-p2 = M * (nb_test_steps // 10)
-stats_list = []
-train_accuracy = 0.0
-train_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
-train_loss_metric = tf.keras.metrics.BinaryCrossentropy()
-test_accuracy = 0.0
-test_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
-print('M, K:', (M,K))
-print('P, P2:', (p, p2))
-for epoch in range(int(state['epochs'])):
+    # do training
+    nb_train_steps = N1 // M
+    p = M * (nb_train_steps // pr)
+    s = M * (nb_train_steps // 20) # save every 5%
+    nb_test_steps = N2 / M
+    p2 = M * (nb_test_steps // 10)
     stats_list = []
-    train_accuracy_metric.reset_states()
-    train_loss_metric.reset_states()
-    test_accuracy_metric.reset_states()
-    train_batches = batch(train_x, train_y, N1, M, K, augmentor=augment_opt)
-    test_batches = batch(test_x, test_y, N2, M, K, augmentor=augment_opt)
+    train_accuracy = 0.0
+    train_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
+    train_loss_metric = tf.keras.metrics.BinaryCrossentropy()
+    test_accuracy = 0.0
+    test_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
+    print('M, K:', (M,K))
+    print('P, P2:', (p, p2))
+    for epoch in range(int(state['epochs'])):
+        stats_list = []
+        train_accuracy_metric.reset_states()
+        train_loss_metric.reset_states()
+        test_accuracy_metric.reset_states()
+        train_batches = batch(train_x, train_y, N1, M, K, augmentor=augment_opt)
+        test_batches = batch(test_x, test_y, N2, M, K, augmentor=augment_opt)
 
-    print('training')
-    i = 0
-    for minibatch in train_batches:
-        i += M
-        train_batch_x, train_batch_y = minibatch()
-        with tf.GradientTape() as tape:
-            Z1 = model_a(train_batch_x, training=True)
-            Z2, T2 = pair(Z1, M, K)
+        print('training')
+        i = 0
+        for minibatch in train_batches:
+            i += M
+            train_batch_x, train_batch_y = minibatch()
+            with tf.GradientTape() as tape:
+                Z1 = model_a(train_batch_x, training=True)
+                Z2, T2 = pair(Z1, M, K)
+                Y = model_b(Z2, training=True)
+                loss_value = loss(T2, Y)
+            grads_a, grads_b = tape.gradient(loss_value, [model_a.trainable_weights, model_b.trainable_weights])
+            optimizer.apply_gradients(zip(grads_a, model_a.trainable_weights))
+            optimizer.apply_gradients(zip(grads_b, model_b.trainable_weights))
+
+            train_accuracy_metric.update_state(T2, Y)
+            train_loss_metric.update_state(T2,Y)
+            if i % s == 0:
+                print('network savepoint')
+                model_a.save(f'model_tests/id{id}_encoder_epoch{epoch}_step{i}_loss{str(train_loss_metric.result())[:5]}')
+                model_b.save(f'model_tests/id{id}_relator_epoch{epoch}_step{i}_loss{str(train_loss_metric.result())[:5]}')
+            if i % p == 0:
+                print(
+                f'{100*i/N1}% '
+                f'loss {loss_value} '
+                f'acc {train_accuracy_metric.result()} '
+                f'avg loss {train_loss_metric.result()}\n'
+                f'{tf.reshape(Y-T2, [-1])}')
+
+        print('testing')
+        i = 0
+        for minibatch in test_batches:
+            i += M
+            test_batch_x, test_batch_y = minibatch()
+            Z1 = model_a(test_batch_x, training=True)
+            Z2, T2 = aggregate(Z1, test_batch_y, M, K)
             Y = model_b(Z2, training=True)
-            loss_value = loss(T2, Y)
-        grads_a, grads_b = tape.gradient(loss_value, [model_a.trainable_weights, model_b.trainable_weights])
-        optimizer.apply_gradients(zip(grads_a, model_a.trainable_weights))
-        optimizer.apply_gradients(zip(grads_b, model_b.trainable_weights))
+            test_accuracy_metric.update_state(T2,Y)
+            if i % p2 == 0:
+                print(
+                f'{100*i/N2}%')
+        print(f'test accuracy: {test_accuracy_metric.result()}')
 
-        train_accuracy_metric.update_state(T2, Y)
-        train_loss_metric.update_state(T2,Y)
-        if i % s == 0:
-            print('network savepoint')
-            model_a.save(f'model_tests/id{id}_encoder_epoch{epoch}_step{i}_loss{str(train_loss_metric.result())[:5]}')
-            model_b.save(f'model_tests/id{id}_relator_epoch{epoch}_step{i}_loss{str(train_loss_metric.result())[:5]}')
-        if i % p == 0:
-            print(
-            f'{100*i/N1}% '
-            f'loss {loss_value} '
-            f'acc {train_accuracy_metric.result()} '
-            f'avg loss {train_loss_metric.result()}\n'
-            f'{tf.reshape(Y-T2, [-1])}')
-
-    print('testing')
-    i = 0
-    for minibatch in test_batches:
-        i += M
-        test_batch_x, test_batch_y = minibatch()
-        Z1 = model_a(test_batch_x, training=True)
-        Z2, T2 = aggregate(Z1, test_batch_y, M, K)
-        Y = model_b(Z2, training=True)
-        test_accuracy_metric.update_state(T2,Y)
-        if i % p2 == 0:
-            print(
-            f'{100*i/N2}%')
-    print(f'test accuracy: {test_accuracy_metric.result()}')
+if __name__ == '__main__':
+    main()
