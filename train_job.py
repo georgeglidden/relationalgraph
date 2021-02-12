@@ -1,11 +1,12 @@
 from model import Conv4, ConvLong, Relator, batch, train_step, test_step, aggregate
+from generate_pairs import pair
 from augmentations import apply_all, no_aug
 import tensorflow as tf
 from tensorflow.keras import datasets as keras_datasets
 import sys
 import smtplib, ssl
 
-DO_MAIL = False
+DO_MAIL = True
 
 def load_ds(ds_name):
     print('loading', ds_name)
@@ -94,8 +95,7 @@ if DO_MAIL:
     with smtplib.SMTP_SSL("smtp.gmail.com") as server:
         server.login(u, p)
         print('successful login to ', u)
-        server.sendmail(u,r,
-            f"""\
+        server.sendmail(u,r, f"""\
 Subject: train job {id} START
 
 id: {id}
@@ -104,24 +104,33 @@ encoder:\n{model_a_summary}
 relation:\n{model_b_summary}""")
 
 # do training
-p = 100
+nsteps = N1 // M #approximately
+p = M * (nsteps // 1000) # update every 0.1%
+s = M * (nsteps // 20) # save every 5%
+test_nsteps = N2 // M
+p2 = M * (nsteps // 1000)
+stats_list = []
 train_accuracy = 0.0
 train_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
+train_loss_metric = tf.keras.metrics.BinaryCrossentropy()
 test_accuracy = 0.0
 test_accuracy_metric = tf.keras.metrics.BinaryAccuracy()
 for epoch in range(int(state['epochs'])):
+    stats_list = []
     train_accuracy_metric.reset_states()
+    train_loss_metric.reset_states()
     test_accuracy_metric.reset_states()
     train_batches = batch(train_x, train_y, N1, M, K, augmentor=augment_opt)
     test_batches = batch(test_x, test_y, N2, M, K, augmentor=augment_opt)
 
     print('training')
-    for i in range(N1):
-        minibatch = train_batches[i]
+    i = 0
+    for minibatch in train_batches:
+        i += M
         train_batch_x, train_batch_y = minibatch()
         with tf.GradientTape() as tape:
             Z1 = model_a(train_batch_x, training=True)
-            Z2, T2 = aggregate(Z1, train_batch_y, M, K)
+            Z2, T2 = pair(Z1, M, K)
             Y = model_b(Z2, training=True)
             loss_value = loss(T2, Y)
         grads_a, grads_b = tape.gradient(loss_value, [model_a.trainable_weights, model_b.trainable_weights])
@@ -129,21 +138,29 @@ for epoch in range(int(state['epochs'])):
         optimizer.apply_gradients(zip(grads_b, model_b.trainable_weights))
 
         train_accuracy_metric.update_state(T2, Y)
+        train_loss_metric.update_state(T2,Y)
+        if i % s == 0:
+            print('network savepoint')
+            model_a.save(f'model_tests/id{id}_encoder_epoch{epoch}_step{i}_loss{str(train_loss_metric.result())[:5]}')
+            model_b.save(f'model_tests/id{id}_relator_epoch{epoch}_step{i}_loss{str(train_loss_metric.result())[:5]}')
         if i % p == 0:
             print(
             f'{100*i/N1}% '
             f'loss {loss_value} '
-            f'acc {train_accuracy_metric.result()} ')
+            f'acc {train_accuracy_metric.result()} '
+            f'avg loss {train_loss_metric.result()}\n'
+            f'{tf.reshape(Y-T2, [-1])}')
 
     print('testing')
-    for i in range(N2):
-        minibatch = test_batches[i]
+    i = 0
+    for minibatch in test_batches:
+        i += M
         test_batch_x, test_batch_y = minibatch()
         Z1 = model_a(test_batch_x, training=True)
         Z2, T2 = aggregate(Z1, test_batch_y, M, K)
         Y = model_b(Z2, training=True)
         test_accuracy_metric.update_state(T2,Y)
-        if i % p == 0:
+        if i % p2 == 0:
             print(
             f'{100*i/N2}%')
     train_accuracy = train_accuracy_metric.result()
@@ -153,22 +170,21 @@ for epoch in range(int(state['epochs'])):
     if DO_MAIL:
         with smtplib.SMTP_SSL("smtp.gmail.com") as server:
             server.login(u, p)
-            server.sendmail(u,r,
-                f"""\
+            server.sendmail(u,r, f"""\
 Subject: train job {id} EPOCH {epoch}
 
 id: {id}
 state:\n{state}
 train accuracy: {train_accuracy}
-test accuracy: {test_accuracy}""")
+test accuracy: {test_accuracy}
+{stats_list}""")
 
 
 # update me when complete\
 if DO_MAIL:
     with smtplib.SMTP_SSL("smtp.gmail.com") as server:
         server.login(u, p)
-        server.sendmail(u,r,
-            f"""\
+        server.sendmail(u,r, f"""\
 Subject: train job {id} STOP
 
 id: {id}
