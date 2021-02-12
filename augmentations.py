@@ -90,3 +90,5 @@ def apply_all(im, chain=all_fns):
     for A in chain:
         im = A(im)
     return im
+
+no_aug = lambda im: im
