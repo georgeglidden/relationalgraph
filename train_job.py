@@ -4,9 +4,6 @@ from augmentations import apply_all, no_aug
 import tensorflow as tf
 from tensorflow.keras import datasets as keras_datasets
 import sys
-import smtplib, ssl
-
-DO_MAIL = True
 
 def load_ds(ds_name):
     print('loading', ds_name)
@@ -66,11 +63,10 @@ state = {
     'nb aug':sys.argv[8]
 }
 
+print('state\n', state)
+
 PORT = 465
 id = sys.argv[9]
-u = sys.argv[10]
-p = sys.argv[11]
-r = "george.glidden@axleinfo.com"
 
 # load and prep data
 dataset = load_ds(state['dataset'])
@@ -89,19 +85,6 @@ model_b_summary = "\n".join(summarylist)
 
 # define augmentor, minibatch params
 augment_opt, M, K = setup_augbatch(state['do aug'], state['mbatch size'], state['nb aug'])
-
-# update me when initialized
-if DO_MAIL:
-    with smtplib.SMTP_SSL("smtp.gmail.com") as server:
-        server.login(u, p)
-        print('successful login to ', u)
-        server.sendmail(u,r, f"""\
-Subject: train job {id} START
-
-id: {id}
-state:\n{state}
-encoder:\n{model_a_summary}
-relation:\n{model_b_summary}""")
 
 # do training
 nsteps = N1 // M #approximately
@@ -163,29 +146,4 @@ for epoch in range(int(state['epochs'])):
         if i % p2 == 0:
             print(
             f'{100*i/N2}%')
-    train_accuracy = train_accuracy_metric.result()
-    test_accuracy = test_accuracy_metric.result()
-
-    # update me after epoch
-    if DO_MAIL:
-        with smtplib.SMTP_SSL("smtp.gmail.com") as server:
-            server.login(u, p)
-            server.sendmail(u,r, f"""\
-Subject: train job {id} EPOCH {epoch}
-
-id: {id}
-state:\n{state}
-train accuracy: {train_accuracy}
-test accuracy: {test_accuracy}
-{stats_list}""")
-
-
-# update me when complete\
-if DO_MAIL:
-    with smtplib.SMTP_SSL("smtp.gmail.com") as server:
-        server.login(u, p)
-        server.sendmail(u,r, f"""\
-Subject: train job {id} STOP
-
-id: {id}
-state:\n{state}""")
+    print(f'test accuracy: {test_accuracy_metric.result()}')
